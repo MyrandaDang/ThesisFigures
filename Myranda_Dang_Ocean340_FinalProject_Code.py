@@ -5,7 +5,6 @@ Created on Sun Jan 27 19:33:37 2019
 @author: myran
 """
 import matplotlib.pyplot as plt
-from scipy.stats import linregress
 from seabird import fCNV
 import numpy as np
 import sys
