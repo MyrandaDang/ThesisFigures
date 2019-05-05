@@ -18,7 +18,8 @@ from Myranda_Dang_a6_340b_cross_sections import twoDemData, calcDistance
 def allProfDict(profList, varList): 
     '''
     This function creates a "master dictionary" and returns a dictionary containing all the 
-    stations and their values only during the downcast
+    stations and their values only during the downcast. Also gets list of max depths of each
+    stations
     '''
     ProfDict = {}
     for i in range(len(profList)):
@@ -61,7 +62,7 @@ def latLong(stationDict):
     long = round(long, 4)
     return lat, long
 
-def plotCrossSection(depths2d, dist2d, var2d, figNum, xlabel, ylabel, title, barLabel):
+def plotCrossSection(depths2d, dist2d, var2d, figNum, xlabel, ylabel, title, barLabel, maxDepth):
     '''
     This function takes in a 2-D array of depth, distance,
     variable data, title, and a figure number, and create a filled contour plot of the 
@@ -73,6 +74,7 @@ def plotCrossSection(depths2d, dist2d, var2d, figNum, xlabel, ylabel, title, bar
     plt.xlabel(xlabel)
     plt.title(title, fontsize = 15)
     plt.contourf(dist2d, depths2d, var2d)
+    #plt.fill_between(dist2shore,bathy,1000,color='k') #Mapping bathymetry
     cbar = plt.colorbar()
     cbar.set_label(barLabel)
     plt.show()
@@ -101,7 +103,7 @@ def plotVar(staDict, varName, figNum, yVar = 'DEPTH'):
     #file = xlabel + '.png'
     #plt.savefig(file)
     
-def mapLatLonPairs(lats, longs, figSize=(20,20), res='10m', cmap='rainbow'):
+def mapStations(lats, longs, figSize=(20,20), res='10m', cmap='rainbow'):
     '''
     This function takes in lists of longitude and latitude and plots 
     them on a map, as well as taking in optional parameters such as
@@ -145,40 +147,48 @@ def mapDepthCrossSection(lats,longs,varName,stationName,varData,barLabel):
     '''
     plt.figure(figsize=(20,20))
     ax = plt.axes(projection=ccrs.PlateCarree())
-    ax.set_title(varName, fontsize=25)
+    ax.set_title(varName + ' m', fontsize=25)
     land = cfeature.NaturalEarthFeature('physical', 'land', '10m', 
                                         facecolor='darkseagreen')
     ax.set_extent([-122.40, -122.10, 47.89, 48.07], crs=ccrs.PlateCarree())
     ax.coastlines(resolution='10m')
     ax.add_feature(land) 
     plt.scatter(longs,lats,c=varData,s=200,transform=ccrs.PlateCarree())
-    for i in range(len(longs)):   
+    #Need to check to see if SAL/AATT = 0, then pt would be black 'k'
+    for i in range(len(lats)):
+        lat = lats[i]
+        long = longs[i]
+        if varData[i] == 0: #Check if station has data or not
+            plt.plot(long,lat,'o',color='darkgray', markersize=14, transform=ccrs.PlateCarree())
         plt.text(longs[i], lats[i]+0.005, 'Sta. '+ str(stationName[i]),
                 fontsize=14,transform=ccrs.PlateCarree())
     cbar = plt.colorbar()
     cbar.set_label(barLabel)
     plt.show()
     
-def depthRange(depth, stationDict, varName):
+def depthRange(depth, station, varName):
     '''
-    This function takes in depth(as a string) that samples were collected at and master dictionary 
-    conatining stationss, their variables and values, and also the variable name of which the user
+    This function takes in depth(as a string) that samples were collected at, a list of the station, 
+    their variables and values, and also the variable name of which the user
     wishs to calculate; calculates an average variable over the passed in depth and returns average
     as a float
     '''
     avgList = []
     count = 0
-    for i in range(len(stationDict['DEPTH'])):
-        num = stationDict['DEPTH'][i]
+    for i in range(len(station['DEPTH'])):
+        num = station['DEPTH'][i]
         if depth in str(num):
             if num < (float(depth) + 2) and num >= (float(depth) - 2):
-                value = list(stationDict['DEPTH']).index(num)
-                avgList.append(stationDict[varName][value])
+                value = list(station['DEPTH']).index(num)
+                avgList.append(station[varName][value])
                 count += 1
     result = 0
     for j in range(len(avgList)):
         result += avgList[j]
-    result = result/count
+    if result != 0 and count != 0:
+        result = result/count
+    else:
+        result = 0
     return result
   
 def createLayersDict(varName, stationDict, layerDepths):
@@ -188,17 +198,12 @@ def createLayersDict(varName, stationDict, layerDepths):
     creates a dictionary of variable values at those depth layers and returns created dictionary.
     '''
     layerVar = {}
-    shallow =[]
-    mid = []
-    deep=[]
-    for station in stationDict.keys():
-        if station not in 'Everett Docks' and station not in 'Station 1':
-            shallow.append(depthRange(str(layerDepths[0]),stationDict[station],varName))
-            mid.append(depthRange(str(layerDepths[1]),stationDict[station],varName))
-            deep.append(depthRange(str(layerDepths[2]),stationDict[station],varName))
-    layerVar['Shallow (10m)'] = shallow
-    layerVar['Mid (45m)'] = mid
-    layerVar['Deep (80m)'] = deep
+    for layer in layerDepths:
+        layerVar[layer] = []
+        for station in stationDict.keys():
+            if station not in 'Everett Docks':
+                layerData = depthRange(str(layer),stationDict[station],varName)
+                layerVar[layer].append(layerData)
     return layerVar
 
 def main(): 
@@ -218,8 +223,14 @@ def main():
     attLabel = 'Attenuation (1/m)'
     salLabel = 'Salinity (PSU)'
     
-    #Create dictionary of all profile dicts
+    #Create dictionary of all profile
     d = allProfDict(profList, varList)
+    
+    #Create list of max depths of all stations
+    maxDepth = []
+    for station in d.keys():
+        maxNum = max(d[station]['DEPTH'])
+        maxDepth.append(maxNum)
 
     #Append Everett Dock file to master dictionary
     dockName = '/Users/myran/Documents/Oceanography/Ocean Senior Thesis/DATA/rc0015_CTD_MD/PROCESSED/RC0015_MD_dockTest.cnv'
@@ -229,7 +240,7 @@ def main():
     # Create numpy array of new depths
     newDepth = np.arange(10, 60, 2)
     
-    #Getting stations that are in a line (Stations 2 to 9) for crosssection
+    #Getting stations that are in a line (Stations 2 to 9) for crossections
     statLine = {}
     stationList = list(d.keys())
     for station in stationList[1:9]:
@@ -243,64 +254,71 @@ def main():
         lats.append(lat)
         longs.append(lon)
         
-    #Get lats/longs of stations to for crossection
+    #Get lats/longs of stations to for transect
     crossLats =[]
     crossLongs = []
-    crossStat = []
+    crossDepth = []
     for i in range(4):
         latCross1 = lats[1 + i]
+        depth1 = lats[1 + i]
         crossLats.append(latCross1)
+        crossDepth.append(depth1)
         longCross1 = longs[1 + i]
+        depth2 = longs[1 + i]
         crossLongs.append(longCross1)
-        crossStat.append(str(2+i))
+        crossDepth.append(depth2)
         latCross2 = lats[8 - i]
         crossLats.append(latCross2)
         longCross2 = longs[8 - i]
         crossLongs.append(longCross2)
-        crossStat.append(str(9-i))
      
     # Get list of distances between datapoints
     dists = calcDistance(crossLats, crossLongs)
     
-    # Create 2-D array of data salinity and attenuation using createTwoDimData function
+    # Create 2-D array of data salinity and attenuation
     attData = twoDemData('CStarAt0', statLine, newDepth)
     salData = twoDemData('PSAL', statLine, newDepth)
     
     # Create grid of depths and distances
     depths_2d, dists_2d = np.meshgrid(newDepth, dists)
     
-    #Plot lat/long pair all stations
-    mapLatLonPairs(lats, longs)
+    #Plot lat/long pair of all stations
+    mapStations(lats, longs)
 
-    #Get cross section
-    plotCrossSection(depths_2d,dists_2d,attData,2,'Distance From Stations 2-9','Depth(m)',
-                     'Attenuation CrossSection', attLabel)
-    plotCrossSection(depths_2d,dists_2d,salData,3,'Distance From Stations 2-9','Depth(m)',
-                     'Salinity CrossSection', salLabel)
+    #Plotting cross section
+    plotCrossSection(depths_2d,dists_2d,attData,2,'Distance (km)','Depth(m)',
+                     'Attenuation CrossSection',attLabel,crossDepth)
+    plotCrossSection(depths_2d,dists_2d,salData,3,'Distance (km)','Depth(m)',
+                     'Salinity CrossSection', salLabel,crossDepth)
     
 
     #Creating "shallow, mid, deep" data of Attenuation and Salinity 
-    layerDepth = [10,25,40]
+    layerDepth = [10,20,30,40,50,60,70,80,90]
     attLayers = createLayersDict('CStarAt0', d, layerDepth)
     salLayers = createLayersDict('PSAL', d, layerDepth)
+
+    #Getting lats/longs for depth layers
+    depthCoorLats = lats
+    depthCoorLongs = longs
+    depthCoorLats.pop()
+    depthCoorLongs.pop() 
     
-    #Creating layer crosssection lats,longs,varName,stationName,varData,barLabel
+    #Plotting depth interval layers 
     count = 4
     for layer in attLayers.keys():
-        mapDepthCrossSection(crossLats,crossLongs,'Attenuation: '+str(layer),crossStat,
-                             np.array(attLayers[layer]),attLabel)
+        mapDepthCrossSection(depthCoorLats,depthCoorLongs,'Attenuation: '+str(layer),
+                             [1,2,3,4,5,6,7,8,9],np.array(attLayers[layer]),attLabel)
         count += 1
-    for layer in salLayers.keys():
-        mapDepthCrossSection(crossLats,crossLongs,'Salinity: '+str(layer),crossStat,
-                             np.array(salLayers[layer]),salLabel)
+        mapDepthCrossSection(depthCoorLats,depthCoorLongs,'Salinity: '+str(layer),
+                             [1,2,3,4,5,6,7,8,9],np.array(salLayers[layer]),salLabel)
         count += 1
-
+    '''
     #Creating depth profiles
     for var in varList: #plotting profiles for each variable
         plotVar(d, var, count)
         count += 1
     plotVar(d, 'PSAL', count, yVar = 'CStarAt0')
-       
+    '''   
     
 if __name__ == "__main__":
     main()
